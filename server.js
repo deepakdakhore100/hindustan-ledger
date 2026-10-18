@@ -182,6 +182,51 @@ app.get('/api/vouchers', async (req, res) => {
   }
 });
 
+// 6. Get Real-Time Account Balances & Trial Balance for active Org
+app.get('/api/account-balances', async (req, res) => {
+  const { org_id } = req.query;
+  try {
+    const query = `
+      SELECT 
+        a.id,
+        a.account_code,
+        a.name,
+        a.account_type,
+        a.sub_type,
+        a.opening_balance,
+        a.opening_balance_type,
+        COALESCE(SUM(jl.debit_amount), 0)::NUMERIC(14, 2) AS total_debit,
+        COALESCE(SUM(jl.credit_amount), 0)::NUMERIC(14, 2) AS total_credit,
+        (
+          (CASE WHEN a.opening_balance_type = 'DR' THEN a.opening_balance ELSE -a.opening_balance END)
+          + COALESCE(SUM(jl.debit_amount), 0)
+          - COALESCE(SUM(jl.credit_amount), 0)
+        )::NUMERIC(14, 2) AS net_balance
+      FROM accounts a
+      LEFT JOIN journal_lines jl ON a.id = jl.account_id
+      WHERE a.organization_id = $1
+      GROUP BY a.id
+      ORDER BY a.account_type ASC, a.name ASC;
+    `;
+
+    const result = await pool.query(query, [org_id]);
+
+    // Format closing balance & closing balance type (DR or CR)
+    const formatted = result.rows.map((row) => {
+      const net = parseFloat(row.net_balance) || 0;
+      return {
+        ...row,
+        closing_balance: Math.abs(net).toFixed(2),
+        closing_balance_type: net >= 0 ? 'DR' : 'CR',
+      };
+    });
+
+    res.json(formatted);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(port, () => {
   console.log(`Hindustan Ledger server running on http://localhost:${port}`);
 });

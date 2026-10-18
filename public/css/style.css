@@ -381,3 +381,105 @@ input:focus, select:focus {
     justify-content: space-between;
   }
 }
+/* Metric KPI Cards */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.metric-card {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  border-left: 4px solid var(--primary);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.metric-card.metric-receivable { border-left-color: #0284c7; }
+.metric-card.metric-payable { border-left-color: #f59e0b; }
+.metric-card.metric-liquid { border-left-color: #10b981; }
+.metric-card.metric-net { border-left-color: #6366f1; }
+
+.metric-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.metric-card h3 {
+  font-size: 1.4rem;
+  margin: 6px 0 4px 0;
+  color: var(--text-main);
+}
+
+.metric-hint {
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
+
+/* Balance Toolbar */
+.balance-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.filter-controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.search-box {
+  width: 240px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+}
+
+.filter-dropdown {
+  width: auto;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  background-color: #f8fafc;
+}
+
+/* Badges for Closing Balance */
+.balance-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border-radius: 4px;
+  margin-left: 6px;
+}
+
+.badge-dr {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.badge-cr {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.badge-type {
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.font-bold {
+  font-weight: 700;
+}

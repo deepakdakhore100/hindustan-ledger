@@ -48,6 +48,7 @@ async function refreshCurrentOrgData() {
   await loadAccounts();
   resetVoucherLines();
   await loadVoucherHistory();
+  await loadAccountBalances(); // <--- Add this line
 }
 
 // Load Accounts for active Org
@@ -165,6 +166,9 @@ function setupTabs() {
 
       if (btn.dataset.tab === 'tab-history') {
         loadVoucherHistory();
+      }
+      if (btn.dataset.tab === 'tab-balances') {
+        loadAccountBalances();
       }
     });
   });
@@ -310,4 +314,143 @@ function showToast(message, type = 'success') {
   setTimeout(() => {
     toast.className = 'toast hidden';
   }, 3500);
+}
+
+// Global state for balances
+let balancesData = [];
+
+// DOM References for Balance Screen
+const balancesBody = document.getElementById('balancesBody');
+const balanceSearchInput = document.getElementById('balanceSearchInput');
+const balanceFilterSelect = document.getElementById('balanceFilterSelect');
+const statReceivables = document.getElementById('statReceivables');
+const statPayables = document.getElementById('statPayables');
+const statLiquid = document.getElementById('statLiquid');
+const statParity = document.getElementById('statParity');
+const balanceTotalDr = document.getElementById('balanceTotalDr');
+const balanceTotalCr = document.getElementById('balanceTotalCr');
+
+// 1. Fetch & Compute Balances from Server
+async function loadAccountBalances() {
+  try {
+    const res = await fetch(`/api/account-balances?org_id=${currentOrgId}`);
+    balancesData = await res.json();
+
+    computeMetrics(balancesData);
+    renderBalancesTable(balancesData);
+  } catch (err) {
+    showToast('Failed to load account balances', 'error');
+  }
+}
+
+// 2. Compute KPI Metrics (Debtors, Creditors, Bank/Cash, Parity)
+function computeMetrics(data) {
+  let totalReceivable = 0;
+  let totalPayable = 0;
+  let liquidCashBank = 0;
+  let grossDr = 0;
+  let grossCr = 0;
+
+  data.forEach((acc) => {
+    const closing = parseFloat(acc.closing_balance) || 0;
+    const isDr = acc.closing_balance_type === 'DR';
+
+    grossDr += parseFloat(acc.total_debit) || 0;
+    grossCr += parseFloat(acc.total_credit) || 0;
+
+    // Customer Debtors (Debit closing balance is money owed to company)
+    if (acc.sub_type === 'CUSTOMER') {
+      if (isDr) totalReceivable += closing;
+      else totalReceivable -= closing;
+    }
+
+    // Supplier Creditors (Credit closing balance is money company owes)
+    if (acc.sub_type === 'SUPPLIER') {
+      if (!isDr) totalPayable += closing;
+      else totalPayable -= closing;
+    }
+
+    // Liquid funds (Bank and Cash accounts)
+    if (acc.sub_type === 'CASH' || acc.sub_type === 'BANK') {
+      if (isDr) liquidCashBank += closing;
+      else liquidCashBank -= closing;
+    }
+  });
+
+  statReceivables.textContent = `₹${totalReceivable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+  statPayables.textContent = `₹${totalPayable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+  statLiquid.textContent = `₹${liquidCashBank.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+
+  balanceTotalDr.textContent = `₹${grossDr.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+  balanceTotalCr.textContent = `₹${grossCr.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+
+  const diff = Math.abs(grossDr - grossCr);
+  if (diff < 0.05) {
+    statParity.textContent = '✓ BALANCED';
+    statParity.style.color = 'var(--success)';
+  } else {
+    statParity.textContent = `DIFF ₹${diff.toFixed(2)}`;
+    statParity.style.color = 'var(--danger)';
+  }
+}
+
+// 3. Render Table with Filters & Search
+function renderBalancesTable(data) {
+  const searchTerm = (balanceSearchInput?.value || '').toLowerCase();
+  const filterType = balanceFilterSelect?.value || 'ALL';
+
+  const filtered = data.filter((acc) => {
+    const matchesSearch =
+      acc.name.toLowerCase().includes(searchTerm) ||
+      acc.account_code.toLowerCase().includes(searchTerm);
+
+    if (!matchesSearch) return false;
+
+    if (filterType === 'ALL') return true;
+    if (filterType === 'CUSTOMER') return acc.sub_type === 'CUSTOMER';
+    if (filterType === 'SUPPLIER') return acc.sub_type === 'SUPPLIER';
+    if (filterType === 'BANK_CASH') return acc.sub_type === 'BANK' || acc.sub_type === 'CASH';
+    if (filterType === 'INCOME') return acc.account_type === 'INCOME';
+    if (filterType === 'EXPENSE') return acc.account_type === 'EXPENSE';
+
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    balancesBody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#94a3b8; padding: 24px;">No matching ledger accounts found.</td></tr>`;
+    return;
+  }
+
+  balancesBody.innerHTML = filtered
+    .map((acc) => {
+      const isDr = acc.closing_balance_type === 'DR';
+      const badgeClass = isDr ? 'badge-dr' : 'badge-cr';
+
+      return `
+      <tr>
+        <td class="mono font-bold" style="font-size:0.8rem;">${acc.account_code}</td>
+        <td>
+          <div class="font-bold">${acc.name}</div>
+        </td>
+        <td><span class="badge-type">${acc.sub_type}</span></td>
+        <td class="mono text-right">₹${parseFloat(acc.opening_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })} <small>${acc.opening_balance_type}</small></td>
+        <td class="mono text-right" style="color:#0284c7;">₹${parseFloat(acc.total_debit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+        <td class="mono text-right" style="color:#b45309;">₹${parseFloat(acc.total_credit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+        <td class="mono text-right font-bold">
+          ₹${parseFloat(acc.closing_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+          <span class="balance-badge ${badgeClass}">${acc.closing_balance_type}</span>
+        </td>
+      </tr>
+    `;
+    })
+    .join('');
+}
+
+// 4. Hook Listeners for Filtering & Search
+if (balanceSearchInput) {
+  balanceSearchInput.addEventListener('input', () => renderBalancesTable(balancesData));
+}
+
+if (balanceFilterSelect) {
+  balanceFilterSelect.addEventListener('change', () => renderBalancesTable(balancesData));
 }

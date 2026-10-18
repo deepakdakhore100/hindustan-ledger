@@ -30,6 +30,7 @@
 
     <!-- Main Navigation Bar -->
     <nav class="tabs-nav">
+      <button class="tab-btn" data-tab="tab-balances">Account Balances</button>
       <button class="tab-btn active" data-tab="tab-vouchers">Voucher / Transactions</button>
       <button class="tab-btn" data-tab="tab-ledgers">Customer & Supplier Setup</button>
       <button class="tab-btn" data-tab="tab-history">Journal Ledger History</button>
@@ -37,6 +38,85 @@
 
     <!-- Notification Toast -->
     <div id="toast" class="toast hidden"></div>
+    <!-- TAB: ACCOUNT BALANCE & TRIAL SUMMARY -->
+    <section id="tab-balances" class="tab-content">
+      <!-- Financial KPI Metrics -->
+      <div class="metrics-grid">
+        <div class="metric-card metric-receivable">
+          <span class="metric-title">Sundry Debtors (Receivables)</span>
+          <h3 id="statReceivables" class="mono">₹0.00</h3>
+          <span class="metric-hint">Amount owed by Customers</span>
+        </div>
+
+        <div class="metric-card metric-payable">
+          <span class="metric-title">Sundry Creditors (Payables)</span>
+          <h3 id="statPayables" class="mono">₹0.00</h3>
+          <span class="metric-hint">Amount owed to Suppliers</span>
+        </div>
+
+        <div class="metric-card metric-liquid">
+          <span class="metric-title">Cash & Bank In-Hand</span>
+          <h3 id="statLiquid" class="mono">₹0.00</h3>
+          <span class="metric-hint">Liquid operating funds</span>
+        </div>
+
+        <div class="metric-card metric-net">
+          <span class="metric-title">Trial Balance Parity</span>
+          <h3 id="statParity" class="mono">BALANCED</h3>
+          <span class="metric-hint">Double-entry integrity check</span>
+        </div>
+      </div>
+
+      <!-- Search & Filter Controls -->
+      <div class="card mt-3">
+        <div class="balance-toolbar">
+          <div>
+            <h2>Account Balance Register</h2>
+            <p class="section-desc">Real-time ledger summary and closing positions for the company.</p>
+          </div>
+
+          <div class="filter-controls">
+            <input type="text" id="balanceSearchInput" placeholder="Search account name or code..." class="search-box">
+            <select id="balanceFilterSelect" class="filter-dropdown">
+              <option value="ALL">All Categories</option>
+              <option value="CUSTOMER">Customers (Debtors)</option>
+              <option value="SUPPLIER">Suppliers (Creditors)</option>
+              <option value="BANK_CASH">Cash & Bank</option>
+              <option value="INCOME">Revenue / Income</option>
+              <option value="EXPENSE">Expenses / Purchases</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Balance Table -->
+        <div class="table-container">
+          <table class="accounting-table" id="balancesTable">
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Account / Party Name</th>
+                <th>Type</th>
+                <th class="text-right">Opening (₹)</th>
+                <th class="text-right">Total Debit (₹)</th>
+                <th class="text-right">Total Credit (₹)</th>
+                <th class="text-right">Closing Balance (₹)</th>
+              </tr>
+            </thead>
+            <tbody id="balancesBody">
+              <!-- Dynamically populated from JS -->
+            </tbody>
+            <tfoot>
+              <tr class="total-row">
+                <td colspan="4">Net Total Activity</td>
+                <td id="balanceTotalDr" class="mono text-right font-bold">₹0.00</td>
+                <td id="balanceTotalCr" class="mono text-right font-bold">₹0.00</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </section>
 
     <!-- TAB 1: NEW VOUCHER / JOURNAL / MEMO -->
     <section id="tab-vouchers" class="tab-content active">
