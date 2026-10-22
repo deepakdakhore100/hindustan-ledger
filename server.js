@@ -16,6 +16,11 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Operations MVP: RCC manufacturing, warehouse and restaurant POS.
+// IMPORTANT: Enable authentication and authorization before public deployment.
+app.use('/api/operations', require('./operations')(pool));
+
+
 // 1. Get all organizations
 app.get('/api/organizations', async (req, res) => {
   try {
