@@ -16,6 +16,16 @@ if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required');
 app.disable('x-powered-by');
 app.use(express.json({limit:'100kb'}));
 const auth=createAuth(pool);
+// Unauthenticated health probe: confirms database connectivity without leaking data.
+app.get('/healthz',async(req,res)=>{
+  try{
+    await pool.query('SELECT 1');
+    res.status(200).json({status:'ok'});
+  }catch(err){
+    console.error('Healthcheck database unavailable');
+    res.status(503).json({status:'unavailable'});
+  }
+});
 app.use('/api/auth',auth.router);
 app.use('/api',auth.requireAuth,auth.csrf);
 app.use('/api/operations',require('./operations')(pool,auth));
