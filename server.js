@@ -163,7 +163,7 @@ app.post('/api/vouchers', async (req, res) => {
     const voucherId = voucherRes.rows[0].id;
 
     // Insert Journal Lines
-    for (const line of lines) {
+    for (const line of parsedLines) {
       await client.query(
         `INSERT INTO journal_lines 
         (organization_id, voucher_id, account_id, debit_amount, credit_amount, line_narration)
@@ -171,9 +171,9 @@ app.post('/api/vouchers', async (req, res) => {
         [
           organization_id,
           voucherId,
-          line.account_id,
-          parseFloat(line.debit) || 0,
-          parseFloat(line.credit) || 0,
+          line.accountId,
+          line.debit,
+          line.credit,
           line.line_narration || narration,
         ]
       );
