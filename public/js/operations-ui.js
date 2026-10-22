@@ -18,6 +18,9 @@ async function pipes(){
  renderRows('jobs',jobs,(t,j)=>{td(t,j.job_code);td(t,j.diameter_mm+'mm '+j.end_type);td(t,j.quantity);td(t,j.step);const cell=td(t,'');if(j.step!=='CAST_COMPLETE'){const b=document.createElement('button');b.textContent='Advance';b.onclick=()=>action(async()=>{const note=window.prompt('Operator stage note (optional)','');if(note===null)return;await api('pipes/jobs/'+j.id+'/advance',{method:'POST',body:JSON.stringify({note})});notify('Fabrication stage updated');await pipes()});cell.appendChild(b)}else if(!j.batch_id){const b=document.createElement('button');b.textContent='Start curing';b.onclick=()=>action(async()=>{if(!window.confirm('Confirm casting complete, verified recipe and actual material availability? This will deduct stock.'))return;await api('pipes/jobs/'+j.id+'/cast-to-batch',{method:'POST',body:'{}'});notify('Batch created from fabrication job; dry curing started');await pipes()});cell.appendChild(b)}else td(t,'')});
  renderRows('analyticsStages',analytics.stages||[],(t,a)=>{td(t,a.diameter_mm+'mm '+a.end_type);td(t,a.stage);td(t,a.pipes)});
  renderRows('analyticsConsumption',analytics.weekly_consumption||[],(t,a)=>{td(t,String(a.week||'').slice(0,10));td(t,a.name);td(t,a.consumed+' '+a.unit)});
+ renderRows('analyticsMonthly',analytics.monthly_consumption||[],(t,a)=>{td(t,String(a.month||'').slice(0,7));td(t,a.name);td(t,a.consumed+' '+a.unit)});
+ renderRows('analyticsWarehouse',analytics.warehouse||[],(t,a)=>{td(t,a.diameter_mm+'mm '+a.end_type);td(t,a.zone);td(t,a.pipes)});
+ renderRows('analyticsJobs',analytics.production_jobs||[],(t,a)=>{td(t,a.step);td(t,a.jobs);td(t,a.pipes)});
  renderRows('bundles',bundles,(t,b)=>{td(t,b.bundle_code);td(t,b.lot_code);td(t,b.diameter_mm+'mm '+b.end_type);td(t,b.pipe_quantity);td(t,b.zone);td(t,b.is_partial?'Yes':'No')});
  renderRows('goods',goods,(t,g)=>{td(t,g.sku);td(t,g.name);td(t,g.category);td(t,g.quantity_on_hand)});
 
