@@ -32,6 +32,7 @@ module.exports = function operations(pool, auth) {
     const n=Number(x); if(!Number.isFinite(n)||n<=0) throw fail(400,label+' must be positive');return n;
   };
   const money = x => Math.round((Number(x)+Number.EPSILON)*100)/100;
+  const qty3 = x => Math.round((Number(x)+Number.EPSILON)*1000)/1000;
   router.get('/pipes/materials',wrap(async(req,res)=>{
     const id=await orgId(pool,pipeOrg);
     res.json((await pool.query('SELECT id,code,name,unit,quantity_on_hand,reorder_level,unit_cost FROM raw_materials WHERE organization_id=$1 ORDER BY name',[id])).rows);
@@ -71,7 +72,7 @@ module.exports = function operations(pool, auth) {
       const parts=[];
       for(const item of items){
         const materialId=Number(item.raw_material_id), qty=Number(item.qty_per_pipe);
-        if(!Number.isSafeInteger(materialId)||!Number.isFinite(qty)||qty<=0||qty>100000||seen.has(materialId)) throw fail(400,'Invalid or duplicate material in recipe');
+        if(!Number.isSafeInteger(materialId)||!Number.isFinite(qty)||qty<=0||qty>100000||Math.abs(qty*1000-Math.round(qty*1000))>0.000001||seen.has(materialId)) throw fail(400,'Invalid or duplicate material in recipe');
         seen.add(materialId);
         const m=await client.query('SELECT id FROM raw_materials WHERE id=$1 AND organization_id=$2',[materialId,id]);
         if(!m.rowCount) throw fail(400,'Material not in Hindustan Pipes');
@@ -88,7 +89,7 @@ module.exports = function operations(pool, auth) {
   }));
   router.post('/pipes/batches',wrap(async(req,res)=>{
     const qty=positive(req.body.quantity,'Quantity');
-    if(!Number.isInteger(qty)) throw fail(400,'Quantity must be an integer');
+    if(!Number.isSafeInteger(qty)||qty>1000) throw fail(400,'Batch quantity must be a whole number from 1 to 1000');
     const client=await pool.connect();
     try{
       await client.query('BEGIN');
@@ -100,7 +101,8 @@ module.exports = function operations(pool, auth) {
       const code='PB-'+Date.now().toString(36).toUpperCase()+'-'+Math.random().toString(36).slice(2,6).toUpperCase();
       const batch=(await client.query("INSERT INTO production_batches(organization_id,product_id,batch_code,quantity,stage,notes) VALUES($1,$2,$3,$4,'DRY_CURING',$5) RETURNING *",[id,product.id,code,qty,String(req.body.notes||'').slice(0,500)])).rows[0];
       for(const r of recipe){
-        const used=money(Number(r.qty_per_pipe)*qty);
+        const used=qty3(Number(r.qty_per_pipe)*qty);
+        if(used<=0) throw fail(400,'Material recipe quantity too small');
         const stock=await client.query('UPDATE raw_materials SET quantity_on_hand=quantity_on_hand-$1 WHERE id=$2 AND organization_id=$3 AND quantity_on_hand >= $1 RETURNING id',[used,r.raw_material_id,id]);
         if(!stock.rowCount) throw fail(400,'Insufficient inventory for material '+r.raw_material_id);
         await client.query('INSERT INTO raw_material_movements(organization_id,raw_material_id,quantity_delta,reason,reference) VALUES($1,$2,$3,$4,$5)',[id,r.raw_material_id,-used,'PRODUCTION',code]);
