@@ -115,7 +115,7 @@ app.post('/api/vouchers', async (req, res) => {
   if (!Array.isArray(lines) || lines.length < 2 || lines.length > 100 ||
       !['JOURNAL','PAYMENT','RECEIPT','CONTRA','CREDIT_MEMO','DEBIT_MEMO'].includes(voucher_type) ||
       typeof voucher_number !== 'string' || !voucher_number.trim() || voucher_number.length > 100 ||
-      typeof voucher_date !== 'string' || !/^\\d{4}-\\d{2}-\\d{2}$/.test(voucher_date)) {
+      typeof voucher_date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(voucher_date)) {
     return res.status(400).json({ error: 'Invalid voucher header or number of lines.' });
   }
   const parsedLines=[];
