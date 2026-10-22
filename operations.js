@@ -192,5 +192,6 @@ module.exports = function operations(pool, auth) {
       await client.query('COMMIT');res.json(out.rows[0]);
     }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
   }));
+  require('./advanced-operations').attach(router,pool);
   return router;
 };
