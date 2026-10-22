@@ -1,7 +1,7 @@
 'use strict';
 const root='/api/operations/';
 const el=id=>document.getElementById(id);
-const state={materials:[],products:[],zones:[],menu:[],recipes:[],recipeDraft:[],cart:[]};
+const state={materials:[],products:[],zones:[],menu:[],recipes:[],recipeDraft:[],cart:[],kitchenLastId:null,kitchenSoundEnabled:false,audioContext:null};
 function notify(message,error=false){const n=el('notice');n.textContent=message;n.style.display='block';n.className=error?'danger':'';window.scrollTo({top:0,behavior:'smooth'});}
 async function api(path,options={}){const r=await fetch(root+path,{headers:{'Content-Type':'application/json'},...options});let d;try{d=await r.json()}catch{throw Error('Invalid server response')}if(!r.ok)throw Error(d.error||'Server error');return d}
 async function action(fn){try{await fn()}catch(e){notify(e.message,true)}}
@@ -22,7 +22,8 @@ async function pipes(){
  renderRows('goods',goods,(t,g)=>{td(t,g.sku);td(t,g.name);td(t,g.category);td(t,g.quantity_on_hand)});
 
 }
-async function pos(){const [menu,orders]=await Promise.all([api('pos/menu'),api('pos/orders')]);state.menu=menu;renderRows('menu',menu,(t,m)=>{td(t,m.name);td(t,m.category);td(t,'₹'+m.price)});
+function kitchenBeep(){if(!state.kitchenSoundEnabled||!state.audioContext)return;try{const ctx=state.audioContext,osc=ctx.createOscillator(),gain=ctx.createGain();osc.type='sine';osc.frequency.value=880;gain.gain.setValueAtTime(0.05,ctx.currentTime);gain.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+.3);osc.connect(gain);gain.connect(ctx.destination);osc.start();osc.stop(ctx.currentTime+.3)}catch(e){console.warn('Audio alert unavailable')}}
+async function pos(){const [menu,orders]=await Promise.all([api('pos/menu'),api('pos/orders')]);const newest=orders.reduce((max,o)=>Math.max(max,Number(o.id)||0),0);if(state.kitchenLastId!==null&&newest>state.kitchenLastId){const recent=orders.filter(o=>Number(o.id)>state.kitchenLastId&&o.status==='NEW').length;if(recent){kitchenBeep();el('kitchenLive').textContent=recent+' new kitchen order'+(recent===1?'':'s')+' received';el('kitchenLive').style.fontWeight='bold'}}if(state.kitchenLastId===null||newest>state.kitchenLastId)state.kitchenLastId=newest;state.menu=menu;renderRows('menu',menu,(t,m)=>{td(t,m.name);td(t,m.category);td(t,'₹'+m.price)});
  fill('orderItem',menu.filter(x=>x.available),x=>x.name+' ₹'+x.price);showCart();
  renderRows('orders',orders,(t,o)=>{td(t,o.order_no);td(t,(o.items||[]).map(x=>x.quantity+' × '+x.name).join(', '));td(t,o.channel);td(t,'₹'+o.total_amount);td(t,o.status);const c=td(t,'');
  const next={NEW:'PREPARING',PREPARING:'READY',READY:'COMPLETED'}[o.status];if(next){const b=document.createElement('button');b.textContent='Mark '+next;b.addEventListener('click',()=>action(async()=>{await api('pos/orders/'+o.id+'/status',{method:'PATCH',body:JSON.stringify({status:next})});notify('Order status updated');await pos()}));c.appendChild(b)}})}
@@ -43,6 +44,8 @@ el('addRecipeItem').onclick=()=>{const raw_material_id=Number(el('recipeMaterial
 el('recipeForm').onsubmit=e=>{e.preventDefault();action(async()=>{if(!state.recipeDraft.length)throw Error('Add at least one material');await api('pipes/products/'+el('recipeProduct').value+'/recipe',{method:'PUT',body:JSON.stringify({items:state.recipeDraft})});notify('Recipe saved');state.recipeDraft=[];await pipes()})};
 el('addCartItem').onclick=()=>{const menu_item_id=Number(el('orderItem').value),quantity=Number(el('orderQuantity').value);if(!Number.isSafeInteger(quantity)||quantity<1||quantity>500){notify('Enter a valid quantity (1-500)',true);return}if(!state.menu.some(m=>Number(m.id)===menu_item_id&&m.available)){notify('Choose an available item',true);return}const existing=state.cart.find(x=>x.menu_item_id===menu_item_id);if(existing)existing.quantity+=quantity;else state.cart.push({menu_item_id,quantity});showCart()};
 
+el('enableKitchenAlerts').onclick=async()=>{try{const Audio=window.AudioContext||window.webkitAudioContext;if(!Audio)throw Error('Audio is not supported in this browser');state.audioContext=state.audioContext||new Audio();await state.audioContext.resume();state.kitchenSoundEnabled=true;el('enableKitchenAlerts').textContent='Sound enabled';el('kitchenLive').textContent='Sound alerts on • checks every 15 sec';kitchenBeep()}catch(e){notify('Kitchen audio unavailable: '+e.message,true)}};
+window.setInterval(()=>{if(el('pos').classList.contains('active'))pos().catch(e=>{el('kitchenLive').textContent='Live sync unavailable: '+e.message})},15000);
 el('pipesTab').onclick=()=>{el('pipes').classList.add('active');el('pos').classList.remove('active');el('pipesTab').className='';el('posTab').className='secondary';action(pipes)};
 el('posTab').onclick=()=>{el('pos').classList.add('active');el('pipes').classList.remove('active');el('posTab').className='';el('pipesTab').className='secondary';action(pos)};
 el('stockForm').onsubmit=e=>{e.preventDefault();action(async()=>{await api('pipes/materials/'+el('stockMaterial').value+'/stock',{method:'POST',body:JSON.stringify({direction:el('stockDirection').value,quantity:Number(el('stockQuantity').value),reference:el('stockReference').value})});notify('Stock movement saved');el('stockForm').reset();await pipes()})};
