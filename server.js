@@ -112,13 +112,26 @@ app.post('/api/vouchers', async (req, res) => {
     lines,
   } = req.body;
 
-  if (!lines || lines.length < 2) {
-    return res.status(400).json({ error: 'A voucher must contain at least two line items.' });
+  if (!Array.isArray(lines) || lines.length < 2 || lines.length > 100 ||
+      !['JOURNAL','PAYMENT','RECEIPT','CONTRA','CREDIT_MEMO','DEBIT_MEMO'].includes(voucher_type) ||
+      typeof voucher_number !== 'string' || !voucher_number.trim() || voucher_number.length > 100 ||
+      typeof voucher_date !== 'string' || !/^\\d{4}-\\d{2}-\\d{2}$/.test(voucher_date)) {
+    return res.status(400).json({ error: 'Invalid voucher header or number of lines.' });
   }
-
-  // Validate Double Entry: Sum(Debit) === Sum(Credit)
-  const totalDebit = lines.reduce((acc, l) => acc + (parseFloat(l.debit) || 0), 0);
-  const totalCredit = lines.reduce((acc, l) => acc + (parseFloat(l.credit) || 0), 0);
+  const parsedLines=[];
+  for (const line of lines) {
+    const debit=Number(line.debit ?? 0), credit=Number(line.credit ?? 0), accountId=Number(line.account_id);
+    if (!Number.isSafeInteger(accountId) || accountId<=0 || !Number.isFinite(debit) || !Number.isFinite(credit) ||
+        debit<0 || credit<0 || (debit>0 && credit>0) || (debit===0 && credit===0) ||
+        !Number.isSafeInteger(Math.round(debit*100)) || !Number.isSafeInteger(Math.round(credit*100)) ||
+        Math.abs(debit*100-Math.round(debit*100))>0.000001 || Math.abs(credit*100-Math.round(credit*100))>0.000001) {
+      return res.status(400).json({error:'Invalid ledger line amount or account'});
+    }
+    parsedLines.push({accountId,debit,credit,line_narration:line.line_narration});
+  }
+  const totalDebit=parsedLines.reduce((s,l)=>s+Math.round(l.debit*100),0)/100;
+  const totalCredit=parsedLines.reduce((s,l)=>s+Math.round(l.credit*100),0)/100;
+  if(totalDebit<=0 || !Number.isFinite(totalDebit))return res.status(400).json({error:'Voucher total must be positive'});
 
   if (Math.abs(totalDebit - totalCredit) > 0.01) {
     return res.status(400).json({
@@ -247,7 +260,6 @@ app.get('/api/account-balances', async (req, res) => {
   }
 });
 
-app.use((err,req,res,next)=>{console.error(err);res.status(500).json({error:'Internal server error'})});
 app.use((err,req,res,next)=>{ console.error(err);res.status(500).json({error:'Internal server error'}); });
 app.listen(port, () => {
   console.log(`Hindustan Ledger server running on http://localhost:${port}`);
