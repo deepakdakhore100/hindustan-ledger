@@ -123,6 +123,12 @@ module.exports = function operations(pool, auth) {
       const batch=r.rows[0], idx=stages.indexOf(batch.stage);
       if(idx<0||idx===stages.length-1) throw fail(400,'Batch already in final stage');
       const next=stages[idx+1];
+      if(next==='WATER_CURING'||next==='READY'){
+        const minHours=next==='WATER_CURING'?24:120;
+        const elapsedHours=(Date.now()-new Date(batch.stage_changed_at).getTime())/3600000;
+        if(!Number.isFinite(elapsedHours)||elapsedHours<minHours) throw fail(400,(next==='WATER_CURING'?'Dry curing requires at least 24 hours':'Underwater curing requires at least 5 days')+' before advancing');
+        if(req.body.quality_approved!==true)throw fail(400,'Supervisor quality confirmation is required to advance curing');
+      }
       if(next==='WAREHOUSE'){
         const zone=(await client.query('SELECT id FROM warehouse_zones WHERE id=$1 AND organization_id=$2',[req.body.zone_id,id])).rows[0];
         if(!zone) throw fail(400,'Choose a warehouse zone');
