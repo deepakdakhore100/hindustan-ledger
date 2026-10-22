@@ -1,6 +1,6 @@
 const express = require('express');
 const { Pool } = require('pg');
-const cors = require('cors');
+const { createAuth } = require('./auth');
 const path = require('path');
 require('dotenv').config();
 
@@ -9,7 +9,7 @@ const port = process.env.PORT || 3000;
 
 // PostgreSQL Connection
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/postgres',
+  connectionString: process.env.DATABASE_URL,
 });
 
 app.use(cors());
@@ -24,10 +24,12 @@ app.use('/api/operations', require('./operations')(pool));
 // 1. Get all organizations
 app.get('/api/organizations', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM organizations ORDER BY id ASC');
+    const result = req.user.is_owner
+      ? await pool.query('SELECT * FROM organizations ORDER BY id ASC')
+      : await pool.query('SELECT o.* FROM organizations o JOIN app_user_roles r ON r.organization_id=o.id WHERE r.user_id=$1 ORDER BY o.id ASC',[req.user.id]);
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Database operation failed' });
   }
 });
 
@@ -81,7 +83,7 @@ app.post('/api/accounts', async (req, res) => {
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json({ error: 'Invalid or conflicting data' });
   }
 });
 
@@ -232,6 +234,7 @@ app.get('/api/account-balances', async (req, res) => {
   }
 });
 
+app.use((err,req,res,next)=>{console.error(err);res.status(500).json({error:'Internal server error'})});
 app.listen(port, () => {
   console.log(`Hindustan Ledger server running on http://localhost:${port}`);
 });
