@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: hindustan-ledger-staging
+    runtime: node
+    plan: free
+    repo: https://github.com/jaykahate78/hindustan-ledger
+    branch: feature/pipes-inventory-bbq-pos
+    buildCommand: npm install --no-audit --no-fund && npm test
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
