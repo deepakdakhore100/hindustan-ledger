@@ -11,6 +11,7 @@ module.exports = function operations(pool, auth) {
       if(!r.rowCount)return res.status(503).json({error:'Business not configured'});
       req.body=req.body||{};
       req.body.organization_id=r.rows[0].id;
+      req.params.orgId=r.rows[0].id;
       req.query.org_id=String(r.rows[0].id);
       await auth.requireOrg(req,res,()=>auth.requireRole(
         (name===posOrg && req.method==='PATCH')?'KITCHEN':(req.method==='GET'?'KITCHEN':'OPERATOR')
