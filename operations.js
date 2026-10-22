@@ -139,7 +139,7 @@ module.exports = function operations(pool, auth) {
   }));
   router.get('/pipes/warehouse',wrap(async(req,res)=>{
     const id=await orgId(pool,pipeOrg);
-    res.json((await pool.query('SELECT w.lot_code,w.quantity,z.name AS zone,b.batch_code,p.diameter_mm,p.end_type FROM warehouse_lots w JOIN warehouse_zones z ON z.id=w.zone_id JOIN production_batches b ON b.id=w.batch_id JOIN pipe_products p ON p.id=b.product_id WHERE w.organization_id=$1 ORDER BY w.id DESC',[id])).rows);
+    res.json((await pool.query('SELECT w.id,w.lot_code,w.quantity,z.name AS zone,b.batch_code,p.diameter_mm,p.end_type FROM warehouse_lots w JOIN warehouse_zones z ON z.id=w.zone_id JOIN production_batches b ON b.id=w.batch_id JOIN pipe_products p ON p.id=b.product_id WHERE w.organization_id=$1 ORDER BY w.id DESC',[id])).rows);
   }));
   router.get('/pos/menu',wrap(async(req,res)=>{
     const id=await orgId(pool,posOrg);
