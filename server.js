@@ -12,14 +12,27 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
-app.use(cors());
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
-
-// Operations MVP: RCC manufacturing, warehouse and restaurant POS.
-// IMPORTANT: Enable authentication and authorization before public deployment.
-app.use('/api/operations', require('./operations')(pool));
-
+if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required');
+app.disable('x-powered-by');
+app.use(express.json({limit:'100kb'}));
+const auth=createAuth(pool);
+app.use('/api/auth',auth.router);
+app.use('/api',auth.requireAuth,auth.csrf);
+app.use('/api/operations',require('./operations')(pool,auth));
+const scopeAccount=async (req,res,next)=>{
+  const id=Number(req.method==='GET'?req.query.org_id:req.body?.organization_id);
+  if(!Number.isSafeInteger(id)||id<=0)return res.status(400).json({error:'Valid organization required'});
+  req.params.orgId=id;
+  return auth.requireOrg(req,res,next);
+};
+app.use(['/api/accounts','/api/vouchers','/api/account-balances'],scopeAccount,auth.requireRole('OPERATOR'));
+app.use((req,res,next)=>{
+  if(req.path.startsWith('/api/')||req.path==='/login.html'||req.path==='/login.js'||req.path.startsWith('/css/'))return next();
+  const token=(String(req.headers.cookie||'').match(/(?:^|; )hl_session=([a-f0-9]{64})/)||[])[1];
+  if(!token)return res.redirect('/login.html');
+  next();
+});
+app.use(express.static(path.join(__dirname,'public')));
 
 // 1. Get all organizations
 app.get('/api/organizations', async (req, res) => {
@@ -43,7 +56,7 @@ app.get('/api/accounts', async (req, res) => {
     );
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Database operation failed' });
   }
 });
 
@@ -157,7 +170,7 @@ app.post('/api/vouchers', async (req, res) => {
     res.status(201).json({ message: 'Voucher posted successfully!', voucher: voucherRes.rows[0] });
   } catch (err) {
     await client.query('ROLLBACK');
-    res.status(400).json({ error: err.message });
+    res.status(400).json({ error: 'Invalid or conflicting data' });
   } finally {
     client.release();
   }
@@ -185,7 +198,7 @@ app.get('/api/vouchers', async (req, res) => {
     );
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Database operation failed' });
   }
 });
 
@@ -230,11 +243,12 @@ app.get('/api/account-balances', async (req, res) => {
 
     res.json(formatted);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Database operation failed' });
   }
 });
 
 app.use((err,req,res,next)=>{console.error(err);res.status(500).json({error:'Internal server error'})});
+app.use((err,req,res,next)=>{ console.error(err);res.status(500).json({error:'Internal server error'}); });
 app.listen(port, () => {
   console.log(`Hindustan Ledger server running on http://localhost:${port}`);
 });
