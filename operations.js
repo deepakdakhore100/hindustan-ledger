@@ -39,6 +39,34 @@ module.exports = function operations(pool) {
     const id=await orgId(pool,pipeOrg);
     res.json((await pool.query('SELECT id,diameter_mm,end_type,unit_price FROM pipe_products WHERE organization_id=$1 AND active ORDER BY diameter_mm,end_type',[id])).rows);
   }));
+  router.get('/pipes/recipes',wrap(async(req,res)=>{
+    const id=await orgId(pool,pipeOrg);
+    res.json((await pool.query('SELECT r.product_id,r.raw_material_id,r.qty_per_pipe,m.name AS material_name,m.unit,p.diameter_mm,p.end_type FROM pipe_recipes r JOIN raw_materials m ON m.id=r.raw_material_id JOIN pipe_products p ON p.id=r.product_id WHERE r.organization_id=$1 ORDER BY p.diameter_mm,p.end_type,m.name',[id])).rows);
+  }));
+  router.put('/pipes/products/:id/recipe',wrap(async(req,res)=>{
+    const items=req.body.items;
+    if(!Array.isArray(items)||!items.length||items.length>30) throw fail(400,'Provide 1–30 materials for recipe');
+    const seen=new Set();
+    const client=await pool.connect();
+    try{
+      await client.query('BEGIN');
+      const id=await orgId(client,pipeOrg);
+      const product=(await client.query('SELECT id FROM pipe_products WHERE id=$1 AND organization_id=$2 FOR UPDATE',[req.params.id,id])).rows[0];
+      if(!product) throw fail(404,'Product not found');
+      const parts=[];
+      for(const item of items){
+        const materialId=Number(item.raw_material_id), qty=Number(item.qty_per_pipe);
+        if(!Number.isSafeInteger(materialId)||!Number.isFinite(qty)||qty<=0||qty>100000||seen.has(materialId)) throw fail(400,'Invalid or duplicate material in recipe');
+        seen.add(materialId);
+        const m=await client.query('SELECT id FROM raw_materials WHERE id=$1 AND organization_id=$2',[materialId,id]);
+        if(!m.rowCount) throw fail(400,'Material not in Hindustan Pipes');
+        parts.push({materialId,qty});
+      }
+      await client.query('DELETE FROM pipe_recipes WHERE organization_id=$1 AND product_id=$2',[id,product.id]);
+      for(const p of parts) await client.query('INSERT INTO pipe_recipes(organization_id,product_id,raw_material_id,qty_per_pipe) VALUES($1,$2,$3,$4)',[id,product.id,p.materialId,p.qty]);
+      await client.query('COMMIT');res.json({product_id:product.id,materials:parts.length});
+    }catch(e){await client.query('ROLLBACK');throw e}finally{client.release()}
+  }));
   router.get('/pipes/batches',wrap(async(req,res)=>{
     const id=await orgId(pool,pipeOrg);
     res.json((await pool.query('SELECT b.id,b.batch_code,b.quantity,b.stage,b.started_at,b.stage_changed_at,p.diameter_mm,p.end_type FROM production_batches b JOIN pipe_products p ON p.id=b.product_id AND p.organization_id=b.organization_id WHERE b.organization_id=$1 ORDER BY b.id DESC LIMIT 100',[id])).rows);
