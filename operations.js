@@ -2,7 +2,21 @@ const express = require('express');
 const router = express.Router();
 const pipeOrg = "Hindustan Pipes", posOrg = "BBQ Pav Bhaji Chain";
 
-module.exports = function operations(pool) {
+module.exports = function operations(pool, auth) {
+  router.use(async(req,res,next)=>{
+    try{
+      const name=req.path.startsWith('/pipes/')?pipeOrg:req.path.startsWith('/pos/')?posOrg:null;
+      if(!name)return res.status(404).json({error:'Unknown module'});
+      const r=await pool.query('SELECT id FROM organizations WHERE name=$1',[name]);
+      if(!r.rowCount)return res.status(503).json({error:'Business not configured'});
+      req.body=req.body||{};
+      req.body.organization_id=r.rows[0].id;
+      req.query.org_id=String(r.rows[0].id);
+      await auth.requireOrg(req,res,()=>auth.requireRole(
+        (name===posOrg && req.method==='PATCH')?'KITCHEN':(req.method==='GET'?'KITCHEN':'OPERATOR')
+      )(req,res,next));
+    }catch(e){next(e)}
+  });
   const wrap = fn => (req,res) => Promise.resolve(fn(req,res)).catch(e => {
     console.error('Operations request failed',e);
     res.status(e.status || 500).json({error: e.status ? e.message : 'Operation failed'});
