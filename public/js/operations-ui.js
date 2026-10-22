@@ -1,7 +1,7 @@
 'use strict';
 const root='/api/operations/';
 const el=id=>document.getElementById(id);
-const state={materials:[],products:[],zones:[],menu:[]};
+const state={materials:[],products:[],zones:[],menu:[],recipes:[],recipeDraft:[],cart:[]};
 function notify(message,error=false){const n=el('notice');n.textContent=message;n.style.display='block';n.className=error?'danger':'';window.scrollTo({top:0,behavior:'smooth'});}
 async function api(path,options={}){const r=await fetch(root+path,{headers:{'Content-Type':'application/json'},...options});let d;try{d=await r.json()}catch{throw Error('Invalid server response')}if(!r.ok)throw Error(d.error||'Server error');return d}
 async function action(fn){try{await fn()}catch(e){notify(e.message,true)}}
@@ -9,21 +9,38 @@ function td(tr,value){const x=document.createElement('td');x.textContent=String(
 function renderRows(id,records,render){const target=el(id);target.replaceChildren();if(!records.length){const tr=document.createElement('tr');td(tr,'No records yet');target.appendChild(tr);return}for(const a of records){const tr=document.createElement('tr');render(tr,a);target.appendChild(tr)}}
 function fill(id,rows,label){const x=el(id);x.replaceChildren();for(const item of rows){const opt=document.createElement('option');opt.value=item.id;opt.textContent=label(item);x.appendChild(opt)}}
 async function pipes(){
- const [materials,products,batches,zones,warehouse]=await Promise.all([api('pipes/materials'),api('pipes/products'),api('pipes/batches'),api('pipes/zones'),api('pipes/warehouse')]);Object.assign(state,{materials,products,zones});
+ const [materials,products,batches,zones,warehouse,recipes]=await Promise.all([api('pipes/materials'),api('pipes/products'),api('pipes/batches'),api('pipes/zones'),api('pipes/warehouse'),api('pipes/recipes')]);Object.assign(state,{materials,products,zones,recipes});
  renderRows('materials',materials,(t,m)=>{td(t,m.name);td(t,m.quantity_on_hand);td(t,m.unit)});
- fill('stockMaterial',materials,m=>m.name+' ('+m.unit+')');fill('pipeProduct',products,p=>p.diameter_mm+'mm '+p.end_type);
+ fill('stockMaterial',materials,m=>m.name+' ('+m.unit+')');fill('pipeProduct',products,p=>p.diameter_mm+'mm '+p.end_type);fill('recipeProduct',products,p=>p.diameter_mm+'mm '+p.end_type);fill('recipeMaterial',materials,m=>m.name+' ('+m.unit+')');showRecipe();
  renderRows('batches',batches,(t,b)=>{td(t,b.batch_code);td(t,b.diameter_mm+'mm '+b.end_type);td(t,b.quantity);td(t,b.stage);const cell=td(t,'');
  if(b.stage!=='WAREHOUSE'){const btn=document.createElement('button');btn.textContent='Advance';btn.addEventListener('click',()=>action(async()=>{const body={};if(b.stage==='READY'){const zone=window.prompt('Warehouse zone ID: '+zones.map(x=>x.id+'='+x.name).join(', '));if(!zone)return;body.zone_id=Number(zone)}await api('pipes/batches/'+b.id+'/advance',{method:'POST',body:JSON.stringify(body)});notify('Batch stage updated');await pipes()}));cell.appendChild(btn)}});
  renderRows('warehouse',warehouse,(t,w)=>{td(t,w.lot_code);td(t,w.batch_code);td(t,w.zone);td(t,w.diameter_mm+'mm '+w.end_type);td(t,w.quantity)});
 }
 async function pos(){const [menu,orders]=await Promise.all([api('pos/menu'),api('pos/orders')]);state.menu=menu;renderRows('menu',menu,(t,m)=>{td(t,m.name);td(t,m.category);td(t,'₹'+m.price)});
- fill('orderItem',menu.filter(x=>x.available),x=>x.name+' ₹'+x.price);
+ fill('orderItem',menu.filter(x=>x.available),x=>x.name+' ₹'+x.price);showCart();
  renderRows('orders',orders,(t,o)=>{td(t,o.order_no);td(t,(o.items||[]).map(x=>x.quantity+' × '+x.name).join(', '));td(t,o.channel);td(t,'₹'+o.total_amount);td(t,o.status);const c=td(t,'');
  const next={NEW:'PREPARING',PREPARING:'READY',READY:'COMPLETED'}[o.status];if(next){const b=document.createElement('button');b.textContent='Mark '+next;b.addEventListener('click',()=>action(async()=>{await api('pos/orders/'+o.id+'/status',{method:'PATCH',body:JSON.stringify({status:next})});notify('Order status updated');await pos()}));c.appendChild(b)}})}
+
+function showRecipe(){
+ const id=Number(el('recipeProduct').value);
+ if(!state.recipeDraft.length)state.recipeDraft=state.recipes.filter(r=>Number(r.product_id)===id).map(r=>({raw_material_id:Number(r.raw_material_id),qty_per_pipe:Number(r.qty_per_pipe)}));
+ const list=el('recipeItems');list.replaceChildren();
+ for(const part of state.recipeDraft){const li=document.createElement('li');const m=state.materials.find(x=>Number(x.id)===part.raw_material_id);li.textContent=(m?.name||part.raw_material_id)+': '+part.qty_per_pipe+' '+(m?.unit||'');const btn=document.createElement('button');btn.type='button';btn.className='secondary';btn.textContent='Remove';btn.style.margin='6px';btn.onclick=()=>{state.recipeDraft=state.recipeDraft.filter(x=>x!==part);showRecipe()};li.appendChild(btn);list.appendChild(li)}
+}
+function showCart(){
+ const tbody=el('cartItems');tbody.replaceChildren();let cents=0;
+ for(const line of state.cart){const m=state.menu.find(x=>Number(x.id)===line.menu_item_id);if(!m)continue;const cost=Math.round(Number(m.price)*100)*line.quantity;cents+=cost;const tr=document.createElement('tr');td(tr,m.name);td(tr,line.quantity);td(tr,'₹'+(cost/100).toFixed(2));const cell=td(tr,'');const b=document.createElement('button');b.type='button';b.className='secondary';b.textContent='Remove';b.onclick=()=>{state.cart=state.cart.filter(x=>x!==line);showCart()};cell.appendChild(b);tbody.appendChild(tr)}
+ el('cartTotal').textContent='Total: ₹'+(cents/100).toFixed(2);
+}
+el('recipeProduct').onchange=()=>{state.recipeDraft=[];showRecipe()};
+el('addRecipeItem').onclick=()=>{const raw_material_id=Number(el('recipeMaterial').value),qty_per_pipe=Number(el('recipeQuantity').value);if(!Number.isFinite(qty_per_pipe)||qty_per_pipe<=0||Math.abs(qty_per_pipe*1000-Math.round(qty_per_pipe*1000))>0.000001){notify('Enter a valid quantity up to 3 decimal places',true);return}const existing=state.recipeDraft.find(x=>x.raw_material_id===raw_material_id);if(existing)existing.qty_per_pipe=qty_per_pipe;else state.recipeDraft.push({raw_material_id,qty_per_pipe});showRecipe()};
+el('recipeForm').onsubmit=e=>{e.preventDefault();action(async()=>{if(!state.recipeDraft.length)throw Error('Add at least one material');await api('pipes/products/'+el('recipeProduct').value+'/recipe',{method:'PUT',body:JSON.stringify({items:state.recipeDraft})});notify('Recipe saved');state.recipeDraft=[];await pipes()})};
+el('addCartItem').onclick=()=>{const menu_item_id=Number(el('orderItem').value),quantity=Number(el('orderQuantity').value);if(!Number.isSafeInteger(quantity)||quantity<1||quantity>500){notify('Enter a valid quantity (1-500)',true);return}if(!state.menu.some(m=>Number(m.id)===menu_item_id&&m.available)){notify('Choose an available item',true);return}const existing=state.cart.find(x=>x.menu_item_id===menu_item_id);if(existing)existing.quantity+=quantity;else state.cart.push({menu_item_id,quantity});showCart()};
+
 el('pipesTab').onclick=()=>{el('pipes').classList.add('active');el('pos').classList.remove('active');el('pipesTab').className='';el('posTab').className='secondary';action(pipes)};
 el('posTab').onclick=()=>{el('pos').classList.add('active');el('pipes').classList.remove('active');el('posTab').className='';el('pipesTab').className='secondary';action(pos)};
 el('stockForm').onsubmit=e=>{e.preventDefault();action(async()=>{await api('pipes/materials/'+el('stockMaterial').value+'/stock',{method:'POST',body:JSON.stringify({direction:el('stockDirection').value,quantity:Number(el('stockQuantity').value),reference:el('stockReference').value})});notify('Stock movement saved');el('stockForm').reset();await pipes()})};
 el('batchForm').onsubmit=e=>{e.preventDefault();action(async()=>{await api('pipes/batches',{method:'POST',body:JSON.stringify({product_id:Number(el('pipeProduct').value),quantity:Number(el('pipeQuantity').value),notes:el('pipeNotes').value})});notify('Production batch created');el('batchForm').reset();await pipes()})};
 el('menuForm').onsubmit=e=>{e.preventDefault();action(async()=>{await api('pos/menu',{method:'POST',body:JSON.stringify({name:el('dishName').value,category:el('dishCategory').value,price:Number(el('dishPrice').value)})});notify('Menu item saved');el('menuForm').reset();await pos()})};
-el('orderForm').onsubmit=e=>{e.preventDefault();action(async()=>{await api('pos/orders',{method:'POST',body:JSON.stringify({channel:el('orderChannel').value,table_label:el('tableLabel').value,items:[{menu_item_id:Number(el('orderItem').value),quantity:Number(el('orderQuantity').value)}]})});notify('Order sent to kitchen');el('orderForm').reset();await pos()})};
+el('orderForm').onsubmit=e=>{e.preventDefault();action(async()=>{if(!state.cart.length)throw Error('Add an item to the cart');await api('pos/orders',{method:'POST',body:JSON.stringify({channel:el('orderChannel').value,table_label:el('tableLabel').value,items:state.cart})});notify('Order sent to kitchen');state.cart=[];el('orderForm').reset();await pos()})};
 action(pipes);
