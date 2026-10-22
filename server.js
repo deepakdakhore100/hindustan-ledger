@@ -37,7 +37,7 @@ const scopeAccount=async (req,res,next)=>{
 };
 app.use(['/api/accounts','/api/vouchers','/api/account-balances'],scopeAccount,auth.requireRole('OPERATOR'));
 app.use((req,res,next)=>{
-  if(req.path.startsWith('/api/')||req.path==='/login.html'||req.path==='/login.js'||req.path.startsWith('/css/'))return next();
+  if(req.path.startsWith('/api/')||req.path==='/login.html'||req.path==='/login.js'||req.path.startsWith('/css/')||req.path==='/manifest.webmanifest'||req.path==='/sw.js'||req.path.startsWith('/icons/'))return next();
   const token=(String(req.headers.cookie||'').match(/(?:^|; )hl_session=([a-f0-9]{64})/)||[])[1];
   if(!token)return res.redirect('/login.html');
   next();
