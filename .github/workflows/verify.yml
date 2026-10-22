@@ -1,0 +1,34 @@
+name: Hindustan Ledger CI
+on:
+  push:
+    branches:
+      - main
+      - feature/pipes-inventory-bbq-pos
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Syntax checks
+        run: |
+          node --check server.js
+          node --check auth.js
+          node --check operations.js
+          node --check public/js/app.js
+          node --check public/js/operations-ui.js
+          node --check public/login.js
+          node --check scripts/create-owner.js
+          node --check scripts/create-staff.js
+      - name: Unit tests
+        run: npm test
