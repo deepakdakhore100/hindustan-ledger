@@ -4,7 +4,10 @@
   "description": "Multi-org accounting web and mobile app",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test",
+    "create-owner": "node scripts/create-owner.js",
+    "create-staff": "node scripts/create-staff.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
