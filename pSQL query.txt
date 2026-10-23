@@ -1,0 +1,132 @@
+-- Drop existing database objects if recreating
+DROP TABLE IF EXISTS journal_lines CASCADE;
+DROP TABLE IF EXISTS vouchers CASCADE;
+DROP TABLE IF EXISTS accounts CASCADE;
+DROP TABLE IF EXISTS organizations CASCADE;
+DROP TYPE IF EXISTS voucher_type_enum CASCADE;
+DROP TYPE IF EXISTS account_type_enum CASCADE;
+DROP TYPE IF EXISTS sub_type_enum CASCADE;
+
+-- 1. Create Enums
+CREATE TYPE voucher_type_enum AS ENUM (
+    'JOURNAL', 
+    'PAYMENT', 
+    'RECEIPT', 
+    'CONTRA', 
+    'CREDIT_MEMO', 
+    'DEBIT_MEMO'
+);
+
+CREATE TYPE account_type_enum AS ENUM (
+    'ASSET', 
+    'LIABILITY', 
+    'EQUITY', 
+    'INCOME', 
+    'EXPENSE'
+);
+
+CREATE TYPE sub_type_enum AS ENUM (
+    'CUSTOMER', 
+    'SUPPLIER', 
+    'BANK', 
+    'CASH', 
+    'GENERAL'
+);
+
+-- 2. Organizations Table
+CREATE TABLE organizations (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE,
+    legal_name VARCHAR(255),
+    tax_identifier VARCHAR(50), -- GSTIN
+    currency VARCHAR(10) DEFAULT 'INR',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 3. Accounts / Ledgers Master
+CREATE TABLE accounts (
+    id SERIAL PRIMARY KEY,
+    organization_id INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    account_code VARCHAR(50) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    account_type account_type_enum NOT NULL,
+    sub_type sub_type_enum DEFAULT 'GENERAL',
+    phone VARCHAR(20),
+    gstin VARCHAR(20),
+    opening_balance NUMERIC(14, 2) DEFAULT 0.00,
+    opening_balance_type VARCHAR(2) CHECK (opening_balance_type IN ('DR', 'CR')),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(organization_id, account_code)
+);
+
+-- 4. Vouchers Table
+CREATE TABLE vouchers (
+    id SERIAL PRIMARY KEY,
+    organization_id INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    voucher_type voucher_type_enum NOT NULL,
+    voucher_number VARCHAR(50) NOT NULL,
+    voucher_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    reference_number VARCHAR(100),
+    narration TEXT,
+    total_amount NUMERIC(14, 2) NOT NULL DEFAULT 0.00,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(organization_id, voucher_type, voucher_number)
+);
+
+-- 5. Journal Lines (Strict Double-Entry Records)
+CREATE TABLE journal_lines (
+    id SERIAL PRIMARY KEY,
+    organization_id INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    voucher_id INT NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+    account_id INT NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
+    debit_amount NUMERIC(14, 2) NOT NULL DEFAULT 0.00 CHECK (debit_amount >= 0),
+    credit_amount NUMERIC(14, 2) NOT NULL DEFAULT 0.00 CHECK (credit_amount >= 0),
+    line_narration TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_dr_or_cr CHECK (
+        (debit_amount > 0 AND credit_amount = 0) OR 
+        (credit_amount > 0 AND debit_amount = 0)
+    )
+);
+
+-- Indexes for Fast Financial Ledger Querying
+CREATE INDEX idx_journal_lines_acc ON journal_lines(organization_id, account_id);
+CREATE INDEX idx_vouchers_org ON vouchers(organization_id, voucher_date);
+
+-- ==========================================================
+-- SEED DATA: Organizations & Baseline Chart of Accounts
+-- ==========================================================
+
+-- Seed Organizations
+INSERT INTO organizations (id, name, legal_name, tax_identifier) VALUES 
+(1, 'Hindustan Pipes', 'Hindustan Pipes & Fittings Pvt Ltd', '27AABCH1111A1Z1'),
+(2, 'BBQ pav bhaji center', 'BBQ Pav Bhaji Food Ventures', '27BBBPB2222B2Z2');
+
+-- Seed Standard Accounts for Hindustan Pipes (Org 1)
+INSERT INTO accounts (organization_id, account_code, name, account_type, sub_type, opening_balance, opening_balance_type) VALUES
+(1, 'ACC-1001', 'Cash Register', 'ASSET', 'CASH', 25000.00, 'DR'),
+(1, 'ACC-1002', 'State Bank of India (Current A/c)', 'ASSET', 'BANK', 450000.00, 'DR'),
+(1, 'ACC-3001', 'Sales - Industrial Pipes', 'INCOME', 'GENERAL', 0.00, 'CR'),
+(1, 'ACC-4001', 'Purchase - Raw Iron & PVC', 'EXPENSE', 'GENERAL', 0.00, 'DR'),
+(1, 'ACC-4002', 'Sales Returns (Credit Memo)', 'INCOME', 'GENERAL', 0.00, 'DR'),
+(1, 'ACC-4003', 'Purchase Returns (Debit Memo)', 'EXPENSE', 'GENERAL', 0.00, 'CR'),
+(1, 'CUST-001', 'Apex Infra Developers', 'ASSET', 'CUSTOMER', 120000.00, 'DR'),
+(1, 'SUPP-001', 'Jindal Steel Suppliers', 'LIABILITY', 'SUPPLIER', 85000.00, 'CR');
+
+INSERT INTO accounts (organization_id, account_code, name, account_type, sub_type, opening_balance, opening_balance_type) VALUES
+(1, 'ACC-4004', 'Factory maintenance', 'EXPENSE', 'GENERAL', 0.00, 'CR'),
+(1, 'ACC-4005', 'Security', 'EXPENSE', 'GENERAL', 0.00, 'CR'),
+(1, 'ACC-4006', 'Die Purchase', 'EXPENSE', 'GENERAL', 0.00, 'CR'),
+(1, 'ACC-4007', 'Transport', 'EXPENSE', 'GENERAL', 0.00, 'CR'),
+(1, 'ACC-4008', 'Utility bills ', 'EXPENSE', 'GENERAL', 0.00, 'CR'),
+(1, 'ACC-4009', 'Labor Charges ', 'EXPENSE', 'GENERAL', 0.00, 'CR')  ;
+
+-- Seed Standard Accounts for BBQ pav bhaji center (Org 2)
+INSERT INTO accounts (organization_id, account_code, name, account_type, sub_type, opening_balance, opening_balance_type) VALUES
+(2, 'ACC-2001', 'Counter Cash Box', 'ASSET', 'CASH', 12000.00, 'DR'),
+(2, 'ACC-2002', 'HDFC Bank (UPI QR Code)', 'ASSET', 'BANK', 84000.00, 'DR'),
+(2, 'ACC-3101', 'Pav Bhaji & Pulao Sales', 'INCOME', 'GENERAL', 0.00, 'CR'),
+(2, 'ACC-4101', 'Vegetables & Spices Purchase', 'EXPENSE', 'GENERAL', 0.00, 'DR'),
+(2, 'ACC-4102', 'Amul Dairy Purchase', 'EXPENSE', 'GENERAL', 0.00, 'DR'),
+(2, 'CUST-101', 'City Party Caterers', 'ASSET', 'CUSTOMER', 15000.00, 'DR'),
+(2, 'SUPP-101', 'Amul Dairy Agency Dadar', 'LIABILITY', 'SUPPLIER', 22000.00, 'CR');
