@@ -1,6 +1,6 @@
 const express = require('express');
 const { Pool } = require('pg');
-const cors = require('cors');
+const { createAuth } = require('./auth');
 const path = require('path');
 require('dotenv').config();
 
@@ -9,20 +9,50 @@ const port = process.env.PORT || 3000;
 
 // PostgreSQL Connection
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost:5432/postgres',
+  connectionString: process.env.DATABASE_URL,
 });
 
-app.use(cors());
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required');
+app.disable('x-powered-by');
+app.use(express.json({limit:'100kb'}));
+const auth=createAuth(pool);
+// Unauthenticated health probe: confirms database connectivity without leaking data.
+app.get('/healthz',async(req,res)=>{
+  try{
+    await pool.query('SELECT 1');
+    res.status(200).json({status:'ok'});
+  }catch(err){
+    console.error('Healthcheck database unavailable');
+    res.status(503).json({status:'unavailable'});
+  }
+});
+app.use('/api/auth',auth.router);
+app.use('/api',auth.requireAuth,auth.csrf);
+app.use('/api/operations',require('./operations')(pool,auth));
+const scopeAccount=async (req,res,next)=>{
+  const id=Number(req.method==='GET'?req.query.org_id:req.body?.organization_id);
+  if(!Number.isSafeInteger(id)||id<=0)return res.status(400).json({error:'Valid organization required'});
+  req.params.orgId=id;
+  return auth.requireOrg(req,res,next);
+};
+app.use(['/api/accounts','/api/vouchers','/api/account-balances'],scopeAccount,auth.requireRole('OPERATOR'));
+app.use((req,res,next)=>{
+  if(req.path.startsWith('/api/')||req.path==='/login.html'||req.path==='/login.js'||req.path.startsWith('/css/')||req.path==='/manifest.webmanifest'||req.path==='/sw.js'||req.path.startsWith('/icons/'))return next();
+  const token=(String(req.headers.cookie||'').match(/(?:^|; )hl_session=([a-f0-9]{64})/)||[])[1];
+  if(!token)return res.redirect('/login.html');
+  next();
+});
+app.use(express.static(path.join(__dirname,'public')));
 
 // 1. Get all organizations
 app.get('/api/organizations', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM organizations ORDER BY id ASC');
+    const result = req.user.is_owner
+      ? await pool.query('SELECT * FROM organizations ORDER BY id ASC')
+      : await pool.query('SELECT o.* FROM organizations o JOIN app_user_roles r ON r.organization_id=o.id WHERE r.user_id=$1 ORDER BY o.id ASC',[req.user.id]);
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Database operation failed' });
   }
 });
 
@@ -36,7 +66,7 @@ app.get('/api/accounts', async (req, res) => {
     );
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Database operation failed' });
   }
 });
 
@@ -76,7 +106,7 @@ app.post('/api/accounts', async (req, res) => {
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json({ error: 'Invalid or conflicting data' });
   }
 });
 
@@ -92,13 +122,26 @@ app.post('/api/vouchers', async (req, res) => {
     lines,
   } = req.body;
 
-  if (!lines || lines.length < 2) {
-    return res.status(400).json({ error: 'A voucher must contain at least two line items.' });
+  if (!Array.isArray(lines) || lines.length < 2 || lines.length > 100 ||
+      !['JOURNAL','PAYMENT','RECEIPT','CONTRA','CREDIT_MEMO','DEBIT_MEMO'].includes(voucher_type) ||
+      typeof voucher_number !== 'string' || !voucher_number.trim() || voucher_number.length > 100 ||
+      typeof voucher_date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(voucher_date)) {
+    return res.status(400).json({ error: 'Invalid voucher header or number of lines.' });
   }
-
-  // Validate Double Entry: Sum(Debit) === Sum(Credit)
-  const totalDebit = lines.reduce((acc, l) => acc + (parseFloat(l.debit) || 0), 0);
-  const totalCredit = lines.reduce((acc, l) => acc + (parseFloat(l.credit) || 0), 0);
+  const parsedLines=[];
+  for (const line of lines) {
+    const debit=Number(line.debit ?? 0), credit=Number(line.credit ?? 0), accountId=Number(line.account_id);
+    if (!Number.isSafeInteger(accountId) || accountId<=0 || !Number.isFinite(debit) || !Number.isFinite(credit) ||
+        debit<0 || credit<0 || (debit>0 && credit>0) || (debit===0 && credit===0) ||
+        !Number.isSafeInteger(Math.round(debit*100)) || !Number.isSafeInteger(Math.round(credit*100)) ||
+        Math.abs(debit*100-Math.round(debit*100))>0.000001 || Math.abs(credit*100-Math.round(credit*100))>0.000001) {
+      return res.status(400).json({error:'Invalid ledger line amount or account'});
+    }
+    parsedLines.push({accountId,debit,credit,line_narration:line.line_narration});
+  }
+  const totalDebit=parsedLines.reduce((s,l)=>s+Math.round(l.debit*100),0)/100;
+  const totalCredit=parsedLines.reduce((s,l)=>s+Math.round(l.credit*100),0)/100;
+  if(totalDebit<=0 || !Number.isFinite(totalDebit))return res.status(400).json({error:'Voucher total must be positive'});
 
   if (Math.abs(totalDebit - totalCredit) > 0.01) {
     return res.status(400).json({
@@ -130,7 +173,7 @@ app.post('/api/vouchers', async (req, res) => {
     const voucherId = voucherRes.rows[0].id;
 
     // Insert Journal Lines
-    for (const line of lines) {
+    for (const line of parsedLines) {
       await client.query(
         `INSERT INTO journal_lines 
         (organization_id, voucher_id, account_id, debit_amount, credit_amount, line_narration)
@@ -138,9 +181,9 @@ app.post('/api/vouchers', async (req, res) => {
         [
           organization_id,
           voucherId,
-          line.account_id,
-          parseFloat(line.debit) || 0,
-          parseFloat(line.credit) || 0,
+          line.accountId,
+          line.debit,
+          line.credit,
           line.line_narration || narration,
         ]
       );
@@ -150,7 +193,7 @@ app.post('/api/vouchers', async (req, res) => {
     res.status(201).json({ message: 'Voucher posted successfully!', voucher: voucherRes.rows[0] });
   } catch (err) {
     await client.query('ROLLBACK');
-    res.status(400).json({ error: err.message });
+    res.status(400).json({ error: 'Invalid or conflicting data' });
   } finally {
     client.release();
   }
@@ -178,7 +221,7 @@ app.get('/api/vouchers', async (req, res) => {
     );
     res.json(result.rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Database operation failed' });
   }
 });
 
@@ -223,10 +266,11 @@ app.get('/api/account-balances', async (req, res) => {
 
     res.json(formatted);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Database operation failed' });
   }
 });
 
+app.use((err,req,res,next)=>{ console.error(err);res.status(500).json({error:'Internal server error'}); });
 app.listen(port, () => {
   console.log(`Hindustan Ledger server running on http://localhost:${port}`);
 });

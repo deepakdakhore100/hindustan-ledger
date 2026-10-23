@@ -1,3 +1,9 @@
+// Escape all untrusted DB text before placing it in HTML templates.
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[ch]));
+}
 let currentOrgId = 1;
 let accountsList = [];
 let lineCounter = 0;
@@ -36,7 +42,7 @@ async function loadOrganizations() {
   try {
     const res = await fetch('/api/organizations');
     const orgs = await res.json();
-    orgSelector.innerHTML = orgs.map(o => `<option value="${o.id}">${o.name}</option>`).join('');
+    orgSelector.replaceChildren(...orgs.map(o => { const option=document.createElement('option'); option.value=String(o.id); option.textContent=o.name; return option; }));
     currentOrgId = orgs[0]?.id || 1;
   } catch (err) {
     showToast('Failed to load organizations', 'error');
@@ -77,7 +83,7 @@ function addVoucherLine(initialDebit = 0, initialCredit = 0) {
   tr.id = `line-row-${lineCounter}`;
 
   const accountOptions = accountsList.map(a => 
-    `<option value="${a.id}">[${a.sub_type}] ${a.name} (${a.account_code})</option>`
+    `<option value="${escapeHtml(a.id)}">[${escapeHtml(a.sub_type)}] ${escapeHtml(a.name)} (${escapeHtml(a.account_code)})</option>`
   ).join('');
 
   tr.innerHTML = `
@@ -284,17 +290,17 @@ async function loadVoucherHistory() {
 
     historyBody.innerHTML = vouchers.map(v => {
       const linesDesc = v.lines.map(l => 
-        `<div><strong>${l.account_name}</strong>: ${l.debit > 0 ? 'Dr ₹' + l.debit : 'Cr ₹' + l.credit}</div>`
+        `<div><strong>${escapeHtml(l.account_name)}</strong>: ${l.debit > 0 ? 'Dr ₹' + l.debit : 'Cr ₹' + l.credit}</div>`
       ).join('');
 
       return `
         <tr>
           <td>${new Date(v.voucher_date).toLocaleDateString('en-IN')}</td>
-          <td><span class="memo-badge">${v.voucher_type}</span></td>
-          <td class="mono"><strong>${v.voucher_number}</strong></td>
+          <td><span class="memo-badge">${escapeHtml(v.voucher_type)}</span></td>
+          <td class="mono"><strong>${escapeHtml(v.voucher_number)}</strong></td>
           <td>
-            <div>${v.narration || '-'}</div>
-            <small style="color:#64748b;">Ref: ${v.reference_number || 'None'}</small>
+            <div>${escapeHtml(v.narration || '-')}</div>
+            <small style="color:#64748b;">Ref: ${escapeHtml(v.reference_number || 'None')}</small>
           </td>
           <td style="font-size: 0.82rem;">${linesDesc}</td>
           <td class="mono text-right font-weight-bold">₹${parseFloat(v.total_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
@@ -428,17 +434,17 @@ function renderBalancesTable(data) {
 
       return `
       <tr>
-        <td class="mono font-bold" style="font-size:0.8rem;">${acc.account_code}</td>
+        <td class="mono font-bold" style="font-size:0.8rem;">${escapeHtml(acc.account_code)}</td>
         <td>
-          <div class="font-bold">${acc.name}</div>
+          <div class="font-bold">${escapeHtml(acc.name)}</div>
         </td>
-        <td><span class="badge-type">${acc.sub_type}</span></td>
-        <td class="mono text-right">₹${parseFloat(acc.opening_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })} <small>${acc.opening_balance_type}</small></td>
+        <td><span class="badge-type">${escapeHtml(acc.sub_type)}</span></td>
+        <td class="mono text-right">₹${parseFloat(acc.opening_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })} <small>${escapeHtml(acc.opening_balance_type)}</small></td>
         <td class="mono text-right" style="color:#0284c7;">₹${parseFloat(acc.total_debit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
         <td class="mono text-right" style="color:#b45309;">₹${parseFloat(acc.total_credit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
         <td class="mono text-right font-bold">
           ₹${parseFloat(acc.closing_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-          <span class="balance-badge ${badgeClass}">${acc.closing_balance_type}</span>
+          <span class="balance-badge ${badgeClass}">${escapeHtml(acc.closing_balance_type)}</span>
         </td>
       </tr>
     `;
